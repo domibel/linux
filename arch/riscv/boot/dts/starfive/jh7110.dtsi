@@ -1143,6 +1143,28 @@
 			#power-domain-cells = <1>;
 		};
 
+		gpu: gpu@18000000 {
+			compatible = "starfive,jh7110-gpu", "img,img-bxe-4-32",
+				     "img,img-rogue";
+			reg = <0x0 0x18000000 0x0 0x100000>,
+			      <0x0 0x0130c000 0x0 0x00010000>;
+			clocks = <&syscrg JH7110_SYSCLK_GPU_CORE>,
+				 <&syscrg JH7110_SYSCLK_GPU_SYS_CLK>,
+				 <&syscrg JH7110_SYSCLK_NOC_BUS_GPU_AXI>,
+				 <&syscrg JH7110_SYSCLK_GPU_CORE_CLK>,
+				 <&syscrg JH7110_SYSCLK_GPU_APB>,
+				 <&syscrg JH7110_SYSCLK_GPU_RTC_TOGGLE>;
+			clock-names = "core", "sys", "mem",
+				      "core_clk", "apb", "rtc";
+			resets = <&syscrg JH7110_SYSRST_GPU_APB>,
+				 <&syscrg JH7110_SYSRST_GPU_DOMA>;
+			reset-names = "apb", "doma";
+			power-domains = <&pwrc JH7110_PD_GPUA>;
+			interrupts = <82>;
+			dma-noncoherent;
+			status = "okay";
+		};
+
 		csi2rx: csi@19800000 {
 			compatible = "starfive,jh7110-csi2rx", "cdns,csi2rx";
 			reg = <0x0 0x19800000 0x0 0x10000>;
