@@ -13,7 +13,9 @@
 #include <drm/drm_print.h>
 #include <linux/cleanup.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/ktime.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -48,19 +50,30 @@ static int
 pvr_power_send_command(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *pow_cmd)
 {
 	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct device *dev = from_pvr_device(pvr_dev)->dev;
+	ktime_t deadline;
 	u32 slot_nr;
-	u32 value;
 	int err;
 
 	WRITE_ONCE(*fw_dev->power_sync, 0);
+
+	pvr_fw_object_sync_field_for_device(dev, fw_dev->mem.power_sync_obj,
+					    0, sizeof(u32));
 
 	err = pvr_kccb_send_cmd_powered(pvr_dev, pow_cmd, &slot_nr);
 	if (err)
 		return err;
 
-	/* Wait for FW to acknowledge. */
-	return readl_poll_timeout(pvr_dev->fw_dev.power_sync, value, value != 0, 100,
-				  POWER_SYNC_TIMEOUT_US);
+	deadline = ktime_add_us(ktime_get(), POWER_SYNC_TIMEOUT_US);
+	while (ktime_to_ns(ktime_sub(deadline, ktime_get())) > 0) {
+		pvr_fw_object_sync_field_for_cpu(dev, fw_dev->mem.power_sync_obj,
+						 0, sizeof(u32));
+		if (READ_ONCE(*fw_dev->power_sync))
+			return 0;
+		udelay(100);
+	}
+
+	return -ETIMEDOUT;
 }
 
 static int
@@ -253,6 +266,15 @@ static int pvr_power_init_manual(struct pvr_device *pvr_dev)
 
 	pvr_dev->reset = reset;
 
+	pvr_dev->reset_doma = devm_reset_control_get_exclusive_by_index(drm_dev->dev, 1);
+	if (IS_ERR(pvr_dev->reset_doma)) {
+		if (PTR_ERR(pvr_dev->reset_doma) == -ENOENT)
+			pvr_dev->reset_doma = NULL;
+		else
+			return dev_err_probe(drm_dev->dev, PTR_ERR(pvr_dev->reset_doma),
+					     "failed to get gpu secondary reset line\n");
+	}
+
 	return 0;
 }
 
@@ -272,6 +294,18 @@ static int pvr_power_on_sequence_manual(struct pvr_device *pvr_dev)
 	if (err)
 		goto err_sys_clk_disable;
 
+	err = clk_prepare_enable(pvr_dev->apb_clk);
+	if (err)
+		goto err_mem_clk_disable;
+
+	err = clk_prepare_enable(pvr_dev->core_clk_gate);
+	if (err)
+		goto err_apb_clk_disable;
+
+	err = clk_prepare_enable(pvr_dev->rtc_clk);
+	if (err)
+		goto err_core_clk_gate_disable;
+
 	/*
 	 * According to the hardware manual, a delay of at least 32 clock
 	 * cycles is required between de-asserting the clkgen reset and
@@ -284,9 +318,28 @@ static int pvr_power_on_sequence_manual(struct pvr_device *pvr_dev)
 
 	err = reset_control_deassert(pvr_dev->reset);
 	if (err)
-		goto err_mem_clk_disable;
+		goto err_rtc_clk_disable;
+
+	if (pvr_dev->reset_doma) {
+		udelay(1);
+		err = reset_control_deassert(pvr_dev->reset_doma);
+		if (err)
+			goto err_reset_assert;
+	}
 
 	return 0;
+
+err_reset_assert:
+	reset_control_assert(pvr_dev->reset);
+
+err_rtc_clk_disable:
+	clk_disable_unprepare(pvr_dev->rtc_clk);
+
+err_core_clk_gate_disable:
+	clk_disable_unprepare(pvr_dev->core_clk_gate);
+
+err_apb_clk_disable:
+	clk_disable_unprepare(pvr_dev->apb_clk);
 
 err_mem_clk_disable:
 	clk_disable_unprepare(pvr_dev->mem_clk);
@@ -302,10 +355,20 @@ err_core_clk_disable:
 
 static int pvr_power_off_sequence_manual(struct pvr_device *pvr_dev)
 {
-	int err;
+	int err, err2;
 
-	err = reset_control_assert(pvr_dev->reset);
+	err = 0;
+	if (pvr_dev->reset_doma) {
+		err = reset_control_assert(pvr_dev->reset_doma);
+		udelay(1);
+	}
+	err2 = reset_control_assert(pvr_dev->reset);
+	if (err2 && !err)
+		err = err2;
 
+	clk_disable_unprepare(pvr_dev->rtc_clk);
+	clk_disable_unprepare(pvr_dev->core_clk_gate);
+	clk_disable_unprepare(pvr_dev->apb_clk);
 	clk_disable_unprepare(pvr_dev->mem_clk);
 	clk_disable_unprepare(pvr_dev->sys_clk);
 	clk_disable_unprepare(pvr_dev->core_clk);
