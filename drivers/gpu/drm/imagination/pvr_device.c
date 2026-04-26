@@ -100,6 +100,9 @@ static int pvr_device_clk_init(struct pvr_device *pvr_dev)
 	struct clk *core_clk;
 	struct clk *sys_clk;
 	struct clk *mem_clk;
+	struct clk *apb_clk;
+	struct clk *core_clk_gate;
+	struct clk *rtc_clk;
 
 	core_clk = devm_clk_get(drm_dev->dev, "core");
 	if (IS_ERR(core_clk))
@@ -116,9 +119,27 @@ static int pvr_device_clk_init(struct pvr_device *pvr_dev)
 		return dev_err_probe(drm_dev->dev, PTR_ERR(mem_clk),
 				     "failed to get mem clock\n");
 
+	apb_clk = devm_clk_get_optional(drm_dev->dev, "apb");
+	if (IS_ERR(apb_clk))
+		return dev_err_probe(drm_dev->dev, PTR_ERR(apb_clk),
+				     "failed to get apb clock\n");
+
+	core_clk_gate = devm_clk_get_optional(drm_dev->dev, "core_clk");
+	if (IS_ERR(core_clk_gate))
+		return dev_err_probe(drm_dev->dev, PTR_ERR(core_clk_gate),
+				     "failed to get core_clk clock\n");
+
+	rtc_clk = devm_clk_get_optional(drm_dev->dev, "rtc");
+	if (IS_ERR(rtc_clk))
+		return dev_err_probe(drm_dev->dev, PTR_ERR(rtc_clk),
+				     "failed to get rtc clock\n");
+
 	pvr_dev->core_clk = core_clk;
 	pvr_dev->sys_clk = sys_clk;
 	pvr_dev->mem_clk = mem_clk;
+	pvr_dev->apb_clk = apb_clk;
+	pvr_dev->core_clk_gate = core_clk_gate;
+	pvr_dev->rtc_clk = rtc_clk;
 
 	return 0;
 }
