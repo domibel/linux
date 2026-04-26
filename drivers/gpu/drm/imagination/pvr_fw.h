@@ -8,8 +8,10 @@
 #include "pvr_fw_trace.h"
 #include "pvr_gem.h"
 
+#include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_mm.h>
 
+#include <linux/dma-mapping.h>
 #include <linux/types.h>
 
 /* Forward declarations from "pvr_device.h". */
@@ -472,6 +474,54 @@ static __always_inline int
 pvr_fw_object_get_dma_addr(struct pvr_fw_object *fw_obj, u32 offset, dma_addr_t *dma_addr_out)
 {
 	return pvr_gem_get_dma_addr(fw_obj->gem, offset, dma_addr_out);
+}
+
+static __always_inline void
+pvr_fw_object_sync_field_for_device(struct device *dev,
+				    struct pvr_fw_object *fw_obj,
+				    u32 offset, size_t size)
+{
+	dma_addr_t dma;
+
+	if (fw_obj && pvr_fw_object_get_dma_addr(fw_obj, offset, &dma) == 0)
+		dma_sync_single_for_device(dev, dma, size, DMA_TO_DEVICE);
+}
+
+static __always_inline void
+pvr_fw_object_sync_field_for_cpu(struct device *dev,
+				 struct pvr_fw_object *fw_obj,
+				 u32 offset, size_t size)
+{
+	dma_addr_t dma;
+
+	if (fw_obj && pvr_fw_object_get_dma_addr(fw_obj, offset, &dma) == 0)
+		dma_sync_single_for_cpu(dev, dma, size, DMA_FROM_DEVICE);
+}
+
+static __always_inline void
+pvr_fw_object_sync_all_for_device(struct device *dev,
+				  struct pvr_fw_object *fw_obj)
+{
+	struct drm_gem_shmem_object *sh;
+
+	if (!fw_obj || !fw_obj->gem)
+		return;
+	sh = &fw_obj->gem->base;
+	if (sh->sgt)
+		dma_sync_sgtable_for_device(dev, sh->sgt, DMA_TO_DEVICE);
+}
+
+static __always_inline void
+pvr_fw_object_sync_all_for_cpu(struct device *dev,
+			       struct pvr_fw_object *fw_obj)
+{
+	struct drm_gem_shmem_object *sh;
+
+	if (!fw_obj || !fw_obj->gem)
+		return;
+	sh = &fw_obj->gem->base;
+	if (sh->sgt)
+		dma_sync_sgtable_for_cpu(dev, sh->sgt, DMA_FROM_DEVICE);
 }
 
 void pvr_fw_object_get_fw_addr_offset(struct pvr_fw_object *fw_obj, u32 offset, u32 *fw_addr_out);

@@ -13,7 +13,9 @@
 #include <drm/drm_print.h>
 #include <linux/cleanup.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/ktime.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -48,19 +50,30 @@ static int
 pvr_power_send_command(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *pow_cmd)
 {
 	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct device *dev = from_pvr_device(pvr_dev)->dev;
+	ktime_t deadline;
 	u32 slot_nr;
-	u32 value;
 	int err;
 
 	WRITE_ONCE(*fw_dev->power_sync, 0);
+
+	pvr_fw_object_sync_field_for_device(dev, fw_dev->mem.power_sync_obj,
+					    0, sizeof(u32));
 
 	err = pvr_kccb_send_cmd_powered(pvr_dev, pow_cmd, &slot_nr);
 	if (err)
 		return err;
 
-	/* Wait for FW to acknowledge. */
-	return readl_poll_timeout(pvr_dev->fw_dev.power_sync, value, value != 0, 100,
-				  POWER_SYNC_TIMEOUT_US);
+	deadline = ktime_add_us(ktime_get(), POWER_SYNC_TIMEOUT_US);
+	while (ktime_to_ns(ktime_sub(deadline, ktime_get())) > 0) {
+		pvr_fw_object_sync_field_for_cpu(dev, fw_dev->mem.power_sync_obj,
+						 0, sizeof(u32));
+		if (READ_ONCE(*fw_dev->power_sync))
+			return 0;
+		udelay(100);
+	}
+
+	return -ETIMEDOUT;
 }
 
 static int
