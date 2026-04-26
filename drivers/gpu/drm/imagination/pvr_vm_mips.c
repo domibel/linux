@@ -16,6 +16,19 @@
 #include <linux/types.h>
 #include <linux/vmalloc.h>
 
+static void
+pvr_vm_mips_pt_sync_for_device(struct pvr_fw_mips_data *mips_data,
+			       struct device *dev,
+			       u32 start_pfn, u32 end_pfn)
+{
+	u32 first = (start_pfn * sizeof(u32)) >> PAGE_SHIFT;
+	u32 last = (end_pfn * sizeof(u32)) >> PAGE_SHIFT;
+
+	for (u32 i = first; i <= last && i < PVR_MIPS_PT_PAGE_COUNT; i++)
+		dma_sync_single_for_device(dev, mips_data->pt_dma_addr[i],
+					   PAGE_SIZE, DMA_TO_DEVICE);
+}
+
 /**
  * pvr_vm_mips_init() - Initialise MIPS FW pagetable
  * @pvr_dev: Target PowerVR device.
@@ -196,6 +209,8 @@ pvr_vm_mips_map(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj)
 		WRITE_ONCE(mips_data->pt[pfn], pte);
 	}
 
+	pvr_vm_mips_pt_sync_for_device(mips_data, from_pvr_device(pvr_dev)->dev,
+				       start_pfn, end_pfn);
 	pvr_mmu_flush_request_all(pvr_dev);
 
 	return 0;
@@ -204,6 +219,8 @@ err_unmap_pages:
 	while (--pfn >= start_pfn)
 		WRITE_ONCE(mips_data->pt[pfn], 0);
 
+	pvr_vm_mips_pt_sync_for_device(mips_data, from_pvr_device(pvr_dev)->dev,
+				       start_pfn, end_pfn);
 	pvr_mmu_flush_request_all(pvr_dev);
 	WARN_ON(pvr_mmu_flush_exec(pvr_dev, true));
 
@@ -232,6 +249,8 @@ pvr_vm_mips_unmap(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj)
 	for (u32 pfn = start_pfn; pfn < end_pfn; pfn++)
 		WRITE_ONCE(mips_data->pt[pfn], 0);
 
+	pvr_vm_mips_pt_sync_for_device(mips_data, from_pvr_device(pvr_dev)->dev,
+				       start_pfn, end_pfn);
 	pvr_mmu_flush_request_all(pvr_dev);
 	WARN_ON(pvr_mmu_flush_exec(pvr_dev, true));
 }

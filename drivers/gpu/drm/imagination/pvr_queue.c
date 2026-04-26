@@ -8,6 +8,7 @@
 #include "pvr_context.h"
 #include "pvr_device.h"
 #include "pvr_drv.h"
+#include "pvr_hwrt.h"
 #include "pvr_job.h"
 #include "pvr_queue.h"
 #include "pvr_vm.h"
@@ -751,6 +752,9 @@ static struct dma_fence *pvr_queue_run_job(struct drm_sched_job *sched_job)
 						 job->hwrt,
 						 frag_job->fw_ccb_cmd_type ==
 						 ROGUE_FWIF_CCB_CMD_TYPE_FRAG_PR);
+		atomic_inc(&geom_queue->kicks_sent);
+		atomic_inc(&frag_queue->kicks_sent);
+		pvr_hwrt_mark_free_lists_kicked(job->hwrt);
 	} else {
 		struct pvr_queue *queue = container_of(job->base.sched,
 						       struct pvr_queue, scheduler);
@@ -758,6 +762,8 @@ static struct dma_fence *pvr_queue_run_job(struct drm_sched_job *sched_job)
 		pvr_cccb_send_kccb_kick(pvr_dev, &queue->cccb,
 					pvr_context_get_fw_addr(job->ctx) + queue->ctx_offset,
 					job->hwrt);
+		atomic_inc(&queue->kicks_sent);
+		pvr_hwrt_mark_free_lists_kicked(job->hwrt);
 	}
 
 	return dma_fence_get(job->done_fence);
@@ -1063,6 +1069,9 @@ static void init_fw_context(struct pvr_queue *queue, void *fw_ctx_map)
 static int pvr_queue_cleanup_fw_context(struct pvr_queue *queue)
 {
 	if (!queue->ctx->fw_obj)
+		return 0;
+
+	if (atomic_read(&queue->kicks_sent) == 0)
 		return 0;
 
 	return pvr_fw_structure_cleanup(queue->ctx->pvr_dev,

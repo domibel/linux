@@ -148,6 +148,12 @@ struct pvr_device {
 	 */
 	struct clk *mem_clk;
 
+	struct clk *apb_clk;
+
+	struct clk *core_clk_gate;
+
+	struct clk *rtc_clk;
+
 	/**
 	 * @power: Optional power domain devices.
 	 *
@@ -169,6 +175,8 @@ struct pvr_device {
 	 * procedure.
 	 */
 	struct reset_control *reset;
+
+	struct reset_control *reset_doma;
 
 	/** @pwrseq: Pointer to a power sequencer, if one is used. */
 	struct pwrseq_desc *pwrseq;

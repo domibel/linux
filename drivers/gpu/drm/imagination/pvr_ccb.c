@@ -186,11 +186,24 @@ void pvr_fwccb_process(struct pvr_device *pvr_dev)
 {
 	struct rogue_fwif_fwccb_cmd *fwccb = pvr_dev->fwccb.ccb;
 	struct rogue_fwif_ccb_ctl *ctrl = pvr_dev->fwccb.ctrl;
+	struct device *dev = from_pvr_device(pvr_dev)->dev;
 	u32 read_offset;
 
 	mutex_lock(&pvr_dev->fwccb.lock);
 
-	while ((read_offset = READ_ONCE(ctrl->read_offset)) != READ_ONCE(ctrl->write_offset)) {
+	for (;;) {
+		pvr_fw_object_sync_field_for_cpu(dev, pvr_dev->fwccb.ctrl_obj,
+			offsetof(struct rogue_fwif_ccb_ctl, write_offset),
+			sizeof(u32));
+
+		read_offset = READ_ONCE(ctrl->read_offset);
+		if (read_offset == READ_ONCE(ctrl->write_offset))
+			break;
+
+		pvr_fw_object_sync_field_for_cpu(dev, pvr_dev->fwccb.ccb_obj,
+			read_offset * sizeof(struct rogue_fwif_fwccb_cmd),
+			sizeof(struct rogue_fwif_fwccb_cmd));
+
 		struct rogue_fwif_fwccb_cmd cmd = fwccb[read_offset];
 
 		WRITE_ONCE(ctrl->read_offset, (read_offset + 1) & READ_ONCE(ctrl->wrap_mask));
@@ -292,6 +305,18 @@ pvr_kccb_send_cmd_reserved_powered(struct pvr_device *pvr_dev,
 	}
 	mb(); /* memory barrier */
 	WRITE_ONCE(ctrl->write_offset, new_write_offset);
+
+	{
+		struct device *dev = from_pvr_device(pvr_dev)->dev;
+
+		pvr_fw_object_sync_all_for_device(dev, pvr_ccb->ccb_obj);
+		pvr_fw_object_sync_field_for_device(dev, pvr_ccb->ctrl_obj,
+			offsetof(struct rogue_fwif_ccb_ctl, write_offset),
+			sizeof(u32));
+		if (kccb_slot)
+			pvr_fw_object_sync_field_for_device(dev, pvr_dev->kccb.rtn_obj,
+				old_write_offset * sizeof(u32), sizeof(u32));
+	}
 	pvr_dev->kccb.reserved_count--;
 
 	/* Kick MTS */
@@ -494,6 +519,9 @@ void pvr_kccb_wake_up_waiters(struct pvr_device *pvr_dev)
 {
 	struct pvr_kccb_fence *fence, *tmp_fence;
 	u32 used_count, available_count;
+
+	pvr_fw_object_sync_all_for_cpu(from_pvr_device(pvr_dev)->dev,
+				       pvr_dev->kccb.rtn_obj);
 
 	/* Wake up those waiting for KCCB slot execution. */
 	wake_up_all(&pvr_dev->kccb.rtn_q);

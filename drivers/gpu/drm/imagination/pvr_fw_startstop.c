@@ -4,6 +4,7 @@
 #include "pvr_device.h"
 #include "pvr_fw.h"
 #include "pvr_fw_meta.h"
+#include "pvr_fw_mips.h"
 #include "pvr_fw_startstop.h"
 #include "pvr_rogue_cr_defs.h"
 #include "pvr_rogue_meta.h"
@@ -11,6 +12,7 @@
 
 #include <linux/compiler.h>
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
 #include <linux/ktime.h>
 #include <linux/types.h>
 
@@ -171,6 +173,29 @@ pvr_fw_start(struct pvr_device *pvr_dev)
 
 	/* Need to wait for at least 16 cycles before taking the FW processor out of reset ... */
 	udelay(3);
+
+	{
+		struct device *dev = from_pvr_device(pvr_dev)->dev;
+		struct pvr_fw_object *fw_obj;
+
+		list_for_each_entry(fw_obj, &pvr_dev->fw_dev.fw_objs.list, node)
+			pvr_fw_object_sync_all_for_device(dev, fw_obj);
+	}
+
+	if (pvr_dev->fw_dev.processor_type == PVR_FW_PROCESSOR_TYPE_MIPS &&
+	    pvr_dev->fw_dev.processor_data.mips_data) {
+		struct pvr_fw_mips_data *mips_data =
+			pvr_dev->fw_dev.processor_data.mips_data;
+		struct device *dev = from_pvr_device(pvr_dev)->dev;
+		int i;
+
+		for (i = 0; i < PVR_MIPS_PT_PAGE_COUNT; i++) {
+			if (!mips_data->pt_dma_addr[i])
+				continue;
+			dma_sync_single_for_device(dev, mips_data->pt_dma_addr[i],
+						   PAGE_SIZE, DMA_TO_DEVICE);
+		}
+	}
 
 	pvr_cr_write64(pvr_dev, ROGUE_CR_SOFT_RESET, 0x0);
 	(void)pvr_cr_read64(pvr_dev, ROGUE_CR_SOFT_RESET);
