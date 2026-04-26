@@ -96,6 +96,8 @@ struct pvr_free_list {
 	/** @hwrt_list: List of HWRTs using this free list. */
 	struct list_head hwrt_list;
 
+	atomic_t kicks_referenced;
+
 	/** @initial_num_pages: Initial number of pages in free list. */
 	u32 initial_num_pages;
 

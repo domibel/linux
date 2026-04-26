@@ -12,10 +12,8 @@
 #include <uapi/drm/pvr_drm.h>
 
 #include "pvr_device.h"
+#include "pvr_free_list.h"
 #include "pvr_rogue_fwif_shared.h"
-
-/* Forward declaration from pvr_free_list.h. */
-struct pvr_free_list;
 
 /* Forward declaration from pvr_gem.h. */
 struct pvr_fw_object;
@@ -161,6 +159,21 @@ pvr_hwrt_data_get(struct pvr_hwrt_data *hwrt)
 		kref_get(&hwrt->hwrt_dataset->ref_count);
 
 	return hwrt;
+}
+
+static __always_inline void
+pvr_hwrt_mark_free_lists_kicked(struct pvr_hwrt_data *hwrt)
+{
+	int i;
+
+	if (!hwrt)
+		return;
+	for (i = 0; i < ARRAY_SIZE(hwrt->hwrt_dataset->free_lists); i++) {
+		struct pvr_free_list *fl = hwrt->hwrt_dataset->free_lists[i];
+
+		if (fl)
+			atomic_inc(&fl->kicks_referenced);
+	}
 }
 
 #endif /* PVR_HWRT_H */

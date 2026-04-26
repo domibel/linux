@@ -870,8 +870,12 @@ pvr_wait_for_fw_boot(struct pvr_device *pvr_dev)
 {
 	ktime_t deadline = ktime_add_us(ktime_get(), FW_BOOT_TIMEOUT_USEC);
 	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	const size_t off = offsetof(struct rogue_fwif_sysinit, firmware_started);
+	struct device *dev = from_pvr_device(pvr_dev)->dev;
 
 	while (ktime_to_ns(ktime_sub(deadline, ktime_get())) > 0) {
+		pvr_fw_object_sync_field_for_cpu(dev, fw_dev->mem.sysinit_obj,
+						 off, sizeof(u32));
 		if (READ_ONCE(fw_dev->fwif_sysinit->firmware_started))
 			return 0;
 	}
