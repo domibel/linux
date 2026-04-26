@@ -96,6 +96,8 @@ struct pvr_queue {
 	 */
 	atomic_t in_flight_job_count;
 
+	atomic_t kicks_sent;
+
 	/**
 	 * @cccb_fence_ctx: CCCB fence context.
 	 *

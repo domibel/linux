@@ -476,17 +476,21 @@ pvr_free_list_release(struct kref *ref_count)
 
 	xa_erase(&free_list->pvr_dev->free_list_ids, free_list->fw_id);
 
-	err = pvr_fw_structure_cleanup(free_list->pvr_dev,
-				       ROGUE_FWIF_CLEANUP_FREELIST,
-				       free_list->fw_obj, 0);
-	if (err == -EBUSY) {
-		/* Flush the FWCCB to process any HWR or freelist reconstruction
-		 * request that might keep the freelist busy, and try again.
-		 */
-		pvr_fwccb_process(free_list->pvr_dev);
+	if (atomic_read(&free_list->kicks_referenced) == 0) {
+		err = 0;
+	} else {
 		err = pvr_fw_structure_cleanup(free_list->pvr_dev,
 					       ROGUE_FWIF_CLEANUP_FREELIST,
 					       free_list->fw_obj, 0);
+		if (err == -EBUSY) {
+			/* Flush the FWCCB to process any HWR or freelist reconstruction
+			 * request that might keep the freelist busy, and try again.
+			 */
+			pvr_fwccb_process(free_list->pvr_dev);
+			err = pvr_fw_structure_cleanup(free_list->pvr_dev,
+						       ROGUE_FWIF_CLEANUP_FREELIST,
+						       free_list->fw_obj, 0);
+		}
 	}
 
 	WARN_ON(err);
