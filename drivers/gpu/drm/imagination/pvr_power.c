@@ -34,16 +34,11 @@
 /**
  * pvr_device_lost() - Mark GPU device as lost
  * @pvr_dev: Target PowerVR device.
- *
- * This will cause the DRM device to be unplugged.
  */
 void
 pvr_device_lost(struct pvr_device *pvr_dev)
 {
-	if (!pvr_dev->lost) {
-		pvr_dev->lost = true;
-		drm_dev_unplug(from_pvr_device(pvr_dev));
-	}
+	pvr_dev->lost = true;
 }
 
 static int
