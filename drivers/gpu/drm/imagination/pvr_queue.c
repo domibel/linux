@@ -940,6 +940,37 @@ pvr_queue_signal_done_fences(struct pvr_queue *queue)
 }
 
 /**
+ * pvr_queues_fail_all_jobs() - Fail every in-flight job's done_fence
+ * @pvr_dev: Target device.
+ * @err: Negative errno to attach to the fence.
+ */
+void
+pvr_queues_fail_all_jobs(struct pvr_device *pvr_dev, int err)
+{
+	struct pvr_queue *queue;
+
+	mutex_lock(&pvr_dev->queues.lock);
+
+	list_for_each_entry(queue, &pvr_dev->queues.active, node) {
+		struct pvr_job *job, *tmp_job;
+
+		spin_lock(&queue->scheduler.job_list_lock);
+		list_for_each_entry_safe(job, tmp_job, &queue->scheduler.pending_list,
+					 base.list) {
+			if (dma_fence_is_signaled(job->done_fence))
+				continue;
+			dma_fence_set_error(job->done_fence, err);
+			dma_fence_signal(job->done_fence);
+			pvr_job_release_pm_ref(job);
+			atomic_dec(&queue->in_flight_job_count);
+		}
+		spin_unlock(&queue->scheduler.job_list_lock);
+	}
+
+	mutex_unlock(&pvr_dev->queues.lock);
+}
+
+/**
  * pvr_queue_check_job_waiting_for_cccb_space() - Check if the job waiting for CCCB space
  * can be unblocked
  * pushed to the CCCB
@@ -1458,5 +1489,12 @@ int pvr_queue_device_init(struct pvr_device *pvr_dev)
  */
 void pvr_queue_device_fini(struct pvr_device *pvr_dev)
 {
+	struct pvr_queue *queue;
+
+	list_for_each_entry(queue, &pvr_dev->queues.active, node)
+		cancel_delayed_work_sync(&queue->scheduler.work_tdr);
+	list_for_each_entry(queue, &pvr_dev->queues.idle, node)
+		cancel_delayed_work_sync(&queue->scheduler.work_tdr);
+
 	destroy_workqueue(pvr_dev->sched_wq);
 }

@@ -8,11 +8,13 @@
 #include "pvr_fw.h"
 #include "pvr_gem.h"
 #include "pvr_power.h"
+#include "pvr_queue.h"
 
 #include <drm/drm_managed.h>
 #include <drm/drm_print.h>
 #include <linux/compiler.h>
 #include <linux/delay.h>
+#include <linux/errno.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/mutex.h>
@@ -149,6 +151,22 @@ process_fwccb_command(struct pvr_device *pvr_dev, struct rogue_fwif_fwccb_cmd *c
 	case ROGUE_FWIF_FWCCB_CMD_FREELIST_GROW:
 		pvr_free_list_process_grow_req(pvr_dev, &cmd->cmd_data.cmd_free_list_gs);
 		break;
+
+	case ROGUE_FWIF_FWCCB_CMD_CONTEXT_RESET_NOTIFICATION: {
+		const struct rogue_fwif_fwccb_cmd_context_reset_data *r =
+			&cmd->cmd_data.cmd_context_reset_notification;
+
+		drm_err(from_pvr_device(pvr_dev),
+			"FW context-reset: ctx=0x%x DM=%u reason=%u job_ref=0x%x flags=0x%x pc=0x%llx fault_va=0x%llx\n",
+			r->server_common_context_id, r->dm, r->reset_reason,
+			r->reset_job_ref, r->flags,
+			(unsigned long long)r->pc_address,
+			(unsigned long long)r->fault_address);
+
+		pvr_queues_fail_all_jobs(pvr_dev, -ECANCELED);
+		pvr_device_lost(pvr_dev);
+		break;
+	}
 
 	default:
 		drm_info(from_pvr_device(pvr_dev), "Received unknown FWCCB command %x\n",
@@ -369,7 +387,8 @@ static int pvr_kccb_reserve_slot_sync(struct pvr_device *pvr_dev)
  * @kccb_slot: Address to store the KCCB slot for this command. May be %NULL.
  *
  * Returns:
- *  * Zero on success, or
+ *  * Zero on success,
+ *  * -EIO if the device has been declared lost, or
  *  * -EBUSY if timeout while waiting for a free KCCB slot.
  */
 int
@@ -377,6 +396,9 @@ pvr_kccb_send_cmd_powered(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd
 			  u32 *kccb_slot)
 {
 	int err;
+
+	if (pvr_dev->lost)
+		return -EIO;
 
 	err = pvr_kccb_reserve_slot_sync(pvr_dev);
 	if (err)

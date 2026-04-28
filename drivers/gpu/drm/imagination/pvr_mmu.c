@@ -137,6 +137,11 @@ int pvr_mmu_flush_exec(struct pvr_device *pvr_dev, bool wait)
 	if (!pvr_dev->fw_dev.booted)
 		goto err_drm_dev_exit;
 
+	if (pvr_dev->lost) {
+		err = -EIO;
+		goto err_drm_dev_exit;
+	}
+
 	cmd_mmu_cache_data->cache_flags =
 		atomic_xchg(&pvr_dev->mmu_flush_cache_flags, 0);
 
