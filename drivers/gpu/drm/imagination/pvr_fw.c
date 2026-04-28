@@ -1303,8 +1303,12 @@ pvr_fw_object_create_and_map_common(struct pvr_device *pvr_dev, size_t size,
 
 	*fw_obj_out = fw_obj;
 
-	if (fw_obj->init)
+	if (fw_obj->init) {
 		fw_obj->init(cpu_ptr, fw_obj->init_priv);
+
+		pvr_fw_object_sync_all_for_device(from_pvr_device(pvr_dev)->dev,
+						  fw_obj);
+	}
 
 	mutex_lock(&pvr_dev->fw_dev.fw_objs.lock);
 	list_add_tail(&fw_obj->node, &pvr_dev->fw_dev.fw_objs.list);
