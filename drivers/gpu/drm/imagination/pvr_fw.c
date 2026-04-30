@@ -28,6 +28,11 @@
 
 #define FW_BOOT_TIMEOUT_USEC 5000000
 
+bool pvr_pow_rascaldust_enable;
+module_param_named(pow_rascaldust_enable, pvr_pow_rascaldust_enable, bool, 0644);
+MODULE_PARM_DESC(pow_rascaldust_enable,
+		 "Enable firmware Rascal/DUST power management init flag");
+
 /* Config heap occupies top 192k of the firmware heap. */
 #define PVR_ROGUE_FW_CONFIG_HEAP_GRANULARITY SZ_64K
 #define PVR_ROGUE_FW_CONFIG_HEAP_SIZE (3 * PVR_ROGUE_FW_CONFIG_HEAP_GRANULARITY)
@@ -420,6 +425,9 @@ fw_sysdata_init(void *cpu_ptr, void *priv)
 
 	if (slc_size_in_kilobytes < ROGUE_FWIF_SLC_MIN_SIZE_FOR_DM_OVERLAP_KB)
 		config_flags |= ROGUE_FWIF_INICFG_DISABLE_DM_OVERLAP;
+
+	if (pvr_pow_rascaldust_enable)
+		config_flags |= ROGUE_FWIF_INICFG_POW_RASCALDUST;
 
 	fwif_sysdata->config_flags = config_flags;
 }
@@ -925,6 +933,40 @@ pvr_fw_validate_init_device_info(struct pvr_device *pvr_dev)
 		return err;
 
 	return pvr_fw_get_device_info(pvr_dev);
+}
+
+#define ROGUE_CR_PDS_EXEC_BASE  0x00610U
+#define ROGUE_CR_USC_EXEC_BASE0 0x04008U
+#define ROGUE_CR_USC_EXEC_BASE1 0x04010U
+#define ROGUE_CR_USC_EXEC_BASE2 0x04028U
+
+/* Re-program PDS and USC exec bases after POW_RASCALDUST wipeout */
+void
+pvr_fw_program_heap_bases(struct pvr_device *pvr_dev)
+{
+	/* PDS exec base for all DMs */
+	pvr_cr_write32(pvr_dev, ROGUE_CR_PDS_EXEC_BASE,
+		       (u32)(ROGUE_PDSCODEDATA_HEAP_BASE & 0xFFFFFFFFU));
+	pvr_cr_write32(pvr_dev, ROGUE_CR_PDS_EXEC_BASE + 0x4,
+		       (u32)(ROGUE_PDSCODEDATA_HEAP_BASE >> 32));
+
+	/* USC exec base for transfer queue */
+	pvr_cr_write32(pvr_dev, ROGUE_CR_USC_EXEC_BASE0,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE & 0xFFFFFFFFU));
+	pvr_cr_write32(pvr_dev, ROGUE_CR_USC_EXEC_BASE0 + 0x4,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE >> 32));
+
+	/* USC exec base for graphics */
+	pvr_cr_write32(pvr_dev, ROGUE_CR_USC_EXEC_BASE1,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE & 0xFFFFFFFFU));
+	pvr_cr_write32(pvr_dev, ROGUE_CR_USC_EXEC_BASE1 + 0x4,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE >> 32));
+
+	/* USC exec base for compute */
+	pvr_cr_write32(pvr_dev, ROGUE_CR_USC_EXEC_BASE2,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE & 0xFFFFFFFFU));
+	pvr_cr_write32(pvr_dev, ROGUE_CR_USC_EXEC_BASE2 + 0x4,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE >> 32));
 }
 
 /**
