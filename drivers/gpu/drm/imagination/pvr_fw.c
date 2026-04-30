@@ -421,6 +421,8 @@ fw_sysdata_init(void *cpu_ptr, void *priv)
 	if (slc_size_in_kilobytes < ROGUE_FWIF_SLC_MIN_SIZE_FOR_DM_OVERLAP_KB)
 		config_flags |= ROGUE_FWIF_INICFG_DISABLE_DM_OVERLAP;
 
+	config_flags |= ROGUE_FWIF_INICFG_POW_RASCALDUST;
+
 	fwif_sysdata->config_flags = config_flags;
 }
 
@@ -925,6 +927,35 @@ pvr_fw_validate_init_device_info(struct pvr_device *pvr_dev)
 		return err;
 
 	return pvr_fw_get_device_info(pvr_dev);
+}
+
+/* Re-program PDS and USC code bases after POW_RASCALDUST wipeout */
+void
+pvr_fw_program_heap_bases(struct pvr_device *pvr_dev)
+{
+	/* PDS code base for all DMs */
+	pvr_cr_write32(pvr_dev, 0x00610,
+		       (u32)(ROGUE_PDSCODEDATA_HEAP_BASE & 0xFFFFFFFFU));
+	pvr_cr_write32(pvr_dev, 0x00614,
+		       (u32)(ROGUE_PDSCODEDATA_HEAP_BASE >> 32));
+
+	/* USC code base for transfer queue */
+	pvr_cr_write32(pvr_dev, 0x04008,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE & 0xFFFFFFFFU));
+	pvr_cr_write32(pvr_dev, 0x0400c,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE >> 32));
+
+	/* USC code base for graphics */
+	pvr_cr_write32(pvr_dev, 0x04010,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE & 0xFFFFFFFFU));
+	pvr_cr_write32(pvr_dev, 0x04014,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE >> 32));
+
+	/* USC code base for compute */
+	pvr_cr_write32(pvr_dev, 0x04028,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE & 0xFFFFFFFFU));
+	pvr_cr_write32(pvr_dev, 0x0402c,
+		       (u32)(ROGUE_USCCODE_HEAP_BASE >> 32));
 }
 
 /**
