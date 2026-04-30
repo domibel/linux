@@ -67,4 +67,6 @@ struct pvr_vm_context *pvr_vm_context_get(struct pvr_vm_context *vm_ctx);
 bool pvr_vm_context_put(struct pvr_vm_context *vm_ctx);
 void pvr_destroy_vm_contexts_for_file(struct pvr_file *pvr_file);
 
+u64 pvr_vm_find_high_water_mark(struct pvr_vm_context *vm_ctx, u64 base, u64 range);
+
 #endif /* PVR_VM_H */

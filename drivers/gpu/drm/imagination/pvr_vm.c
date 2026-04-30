@@ -906,6 +906,24 @@ pvr_vm_unmap_all(struct pvr_vm_context *vm_ctx)
 	mutex_unlock(&vm_ctx->lock);
 }
 
+u64
+pvr_vm_find_high_water_mark(struct pvr_vm_context *vm_ctx, u64 base, u64 range)
+{
+	struct drm_gpuva *va;
+	u64 hwm = base;
+
+	mutex_lock(&vm_ctx->lock);
+	drm_gpuvm_for_each_va_range(va, &vm_ctx->gpuvm_mgr, base, base + range) {
+		u64 end = va->va.addr + va->va.range;
+
+		if (end > hwm)
+			hwm = end;
+	}
+	mutex_unlock(&vm_ctx->lock);
+
+	return hwm;
+}
+
 /* Static data areas are determined by firmware. */
 static const struct drm_pvr_static_data_area static_data_areas[] = {
 	{
