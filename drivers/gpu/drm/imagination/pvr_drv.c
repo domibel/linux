@@ -1472,6 +1472,10 @@ static void pvr_remove(struct platform_device *plat_dev)
 	xa_destroy(&pvr_dev->free_list_ids);
 
 	pm_runtime_suspend(drm_dev->dev);
+
+	if (pvr_dev->sched_wq)
+		flush_workqueue(pvr_dev->sched_wq);
+
 	pvr_device_fini(pvr_dev);
 	drm_dev_unplug(drm_dev);
 	pvr_watchdog_fini(pvr_dev);
