@@ -477,9 +477,18 @@ pvr_power_device_idle(struct device *dev)
 {
 	struct platform_device *plat_dev = to_platform_device(dev);
 	struct drm_device *drm_dev = platform_get_drvdata(plat_dev);
-	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
+	struct pvr_device *pvr_dev;
+	int idx;
+	int ret;
 
-	return pvr_power_is_idle(pvr_dev) ? 0 : -EBUSY;
+	if (!drm_dev_enter(drm_dev, &idx))
+		return 0;
+
+	pvr_dev = to_pvr_device(drm_dev);
+	ret = pvr_power_is_idle(pvr_dev) ? 0 : -EBUSY;
+
+	drm_dev_exit(idx);
+	return ret;
 }
 
 static int
