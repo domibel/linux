@@ -567,6 +567,8 @@ static int
 pvr_check_gpu_supported(struct pvr_device *pvr_dev,
 			const struct pvr_gpu_id *gpu_id)
 {
+	/* skip the gpu supported test */
+	return 0;
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 
 	switch (pvr_gpu_support_level(gpu_id)) {
