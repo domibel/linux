@@ -434,13 +434,13 @@ pvr_vm_gpuva_remap(struct drm_gpuva_op *op, void *op_ctx)
 
 	if (op->remap.prev) {
 		pvr_gem_object_get(gem_to_pvr_gem(ctx->prev_va->base.gem.obj));
-		drm_gpuva_link(&ctx->prev_va->base, ctx->gpuvm_bo);
+		drm_gpuva_link(&ctx->prev_va->base, op->remap.unmap->va->vm_bo);
 		ctx->prev_va = NULL;
 	}
 
 	if (op->remap.next) {
 		pvr_gem_object_get(gem_to_pvr_gem(ctx->next_va->base.gem.obj));
-		drm_gpuva_link(&ctx->next_va->base, ctx->gpuvm_bo);
+		drm_gpuva_link(&ctx->next_va->base, op->remap.unmap->va->vm_bo);
 		ctx->next_va = NULL;
 	}
 
