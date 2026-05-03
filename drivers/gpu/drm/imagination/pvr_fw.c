@@ -1486,6 +1486,10 @@ pvr_fw_hard_reset(struct pvr_device *pvr_dev)
 	struct list_head *pos;
 	int err;
 
+	drm_warn(from_pvr_device(pvr_dev),
+		 "FW hard reset (called from %pS)\n",
+		 __builtin_return_address(0));
+
 	/* Reset all FW objects */
 	mutex_lock(&pvr_dev->fw_dev.fw_objs.lock);
 
