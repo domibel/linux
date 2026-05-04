@@ -132,6 +132,10 @@ static int jh7110_voutcrg_probe(struct platform_device *pdev)
 		return dev_err_probe(priv->dev, ret, "failed to get top clocks\n");
 	dev_set_drvdata(priv->dev, top);
 
+	ret = clk_bulk_prepare_enable(top->top_clks_num, top->top_clks);
+	if (ret)
+		return dev_err_probe(priv->dev, ret, "failed to enable top clocks\n");
+
 	ret = jh7110_vout_top_rst_init(priv);
 	if (ret)
 		goto err_exit;
