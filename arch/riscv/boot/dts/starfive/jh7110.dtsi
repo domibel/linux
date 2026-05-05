@@ -1235,6 +1235,7 @@
 			#address-cells = <2>;
 			#size-cells = <2>;
 			ranges;
+			dma-noncoherent;
 
 			power-domains = <&pwrc JH7110_PD_VOUT>;
 			clocks = <&syscrg JH7110_SYSCLK_NOC_BUS_DISP_AXI>;
