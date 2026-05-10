@@ -28,6 +28,11 @@
 
 #define FW_BOOT_TIMEOUT_USEC 5000000
 
+bool pvr_pow_rascaldust_enable;
+module_param_named(pow_rascaldust_enable, pvr_pow_rascaldust_enable, bool, 0644);
+MODULE_PARM_DESC(pow_rascaldust_enable,
+		 "Enable firmware Rascal/DUST power management init flag");
+
 /* Config heap occupies top 192k of the firmware heap. */
 #define PVR_ROGUE_FW_CONFIG_HEAP_GRANULARITY SZ_64K
 #define PVR_ROGUE_FW_CONFIG_HEAP_SIZE (3 * PVR_ROGUE_FW_CONFIG_HEAP_GRANULARITY)
@@ -421,7 +426,8 @@ fw_sysdata_init(void *cpu_ptr, void *priv)
 	if (slc_size_in_kilobytes < ROGUE_FWIF_SLC_MIN_SIZE_FOR_DM_OVERLAP_KB)
 		config_flags |= ROGUE_FWIF_INICFG_DISABLE_DM_OVERLAP;
 
-	config_flags |= ROGUE_FWIF_INICFG_POW_RASCALDUST;
+	if (pvr_pow_rascaldust_enable)
+		config_flags |= ROGUE_FWIF_INICFG_POW_RASCALDUST;
 
 	fwif_sysdata->config_flags = config_flags;
 }
