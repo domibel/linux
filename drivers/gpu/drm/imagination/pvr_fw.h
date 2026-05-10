@@ -401,6 +401,8 @@ int pvr_fw_init(struct pvr_device *pvr_dev);
 void pvr_fw_fini(struct pvr_device *pvr_dev);
 void pvr_fw_program_heap_bases(struct pvr_device *pvr_dev);
 
+extern bool pvr_pow_rascaldust_enable;
+
 int pvr_wait_for_fw_boot(struct pvr_device *pvr_dev);
 
 int

@@ -736,7 +736,8 @@ static struct dma_fence *pvr_queue_run_job(struct drm_sched_job *sched_job)
 	/* Submit our job to the CCCB */
 	pvr_queue_submit_job_to_cccb(job);
 
-	pvr_fw_program_heap_bases(pvr_dev);
+	if (pvr_pow_rascaldust_enable)
+		pvr_fw_program_heap_bases(pvr_dev);
 
 	if (job->paired_job) {
 		struct pvr_job *geom_job = job;
