@@ -24,6 +24,11 @@
 #define CTX_GEOM_CCCB_SIZE_LOG2 15
 #define CTX_TRANSFER_CCCB_SIZE_LOG2 15
 
+static uint pvr_job_timeout_ms = 500;
+module_param_named(job_timeout_ms, pvr_job_timeout_ms, uint, 0644);
+MODULE_PARM_DESC(job_timeout_ms,
+		 "drm_sched per-job timeout in milliseconds (default 500). On JH7110 BXE-4-32 the timeout handler's scheduler churn is what unsticks each stalled fragment dispatch.");
+
 static int get_xfer_ctx_state_size(struct pvr_device *pvr_dev)
 {
 	u32 num_isp_store_registers;
@@ -1301,7 +1306,7 @@ struct pvr_queue *pvr_queue_create(struct pvr_context *ctx,
 		.num_rqs = 1,
 		.credit_limit = 64 * 1024,
 		.hang_limit = 1,
-		.timeout = msecs_to_jiffies(500),
+		.timeout = msecs_to_jiffies(pvr_job_timeout_ms),
 		.timeout_wq = pvr_dev->sched_wq,
 		.name = "pvr-queue",
 		.dev = pvr_dev->base.dev,

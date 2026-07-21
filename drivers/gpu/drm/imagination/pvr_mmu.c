@@ -23,6 +23,11 @@
 #define PVR_SHIFT_FROM_SIZE(size_) (__builtin_ctzll(size_))
 #define PVR_MASK_FROM_SIZE(size_) (~((size_) - U64_C(1)))
 
+static uint pvr_mmu_flush_wait_secs = 2;
+module_param_named(mmu_flush_wait_secs, pvr_mmu_flush_wait_secs, uint, 0644);
+MODULE_PARM_DESC(mmu_flush_wait_secs,
+		 "Seconds to wait for an MMUCACHE flush ack before hard-resetting the GPU. Default 2.");
+
 /*
  * The value of the device page size (%PVR_DEVICE_PAGE_SIZE) is currently
  * pegged to the host page size (%PAGE_SIZE). This chunk of macro goodness both
@@ -153,7 +158,7 @@ int pvr_mmu_flush_exec(struct pvr_device *pvr_dev, bool wait)
 	if (err)
 		goto err_reset_and_retry;
 
-	err = pvr_kccb_wait_for_completion(pvr_dev, slot, HZ, NULL);
+	err = pvr_kccb_wait_for_completion(pvr_dev, slot, pvr_mmu_flush_wait_secs * HZ, NULL);
 	if (err)
 		goto err_reset_and_retry;
 
@@ -178,7 +183,7 @@ err_reset_and_retry:
 	}
 
 	if (wait) {
-		err = pvr_kccb_wait_for_completion(pvr_dev, slot, HZ, NULL);
+		err = pvr_kccb_wait_for_completion(pvr_dev, slot, pvr_mmu_flush_wait_secs * HZ, NULL);
 		if (err)
 			pvr_device_lost(pvr_dev);
 	}

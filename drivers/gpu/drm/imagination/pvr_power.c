@@ -36,6 +36,11 @@ module_param_named(ufo_poll_ms, pvr_ufo_poll_ms, uint, 0644);
 MODULE_PARM_DESC(ufo_poll_ms,
 		 "Poll period (ms) for missing FRAG completion interrupts. Default 16, 0 disables it.");
 
+static uint pvr_kccb_stall_polls = 64;
+module_param_named(kccb_stall_polls, pvr_kccb_stall_polls, uint, 0644);
+MODULE_PARM_DESC(kccb_stall_polls,
+		 "Consecutive 500 ms watchdog polls with no KCCB progress before declaring the FW stalled. Default 64.");
+
 /**
  * pvr_device_lost() - Mark GPU device as lost
  * @pvr_dev: Target PowerVR device.
@@ -195,11 +200,7 @@ pvr_watchdog_kccb_stalled(struct pvr_device *pvr_dev)
 	if (pvr_dev->watchdog.old_kccb_cmds_executed == kccb_cmds_executed && !kccb_is_idle) {
 		pvr_dev->watchdog.kccb_stall_count++;
 
-		/*
-		 * If we have commands pending with no progress for 2 consecutive polls then
-		 * consider KCCB command processing stalled.
-		 */
-		if (pvr_dev->watchdog.kccb_stall_count == 2) {
+		if (pvr_dev->watchdog.kccb_stall_count >= pvr_kccb_stall_polls) {
 			pvr_dev->watchdog.kccb_stall_count = 0;
 			return true;
 		}
