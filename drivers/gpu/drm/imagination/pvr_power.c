@@ -31,6 +31,11 @@
 
 #define WATCHDOG_TIME_MS (500)
 
+static uint pvr_ufo_poll_ms = 16;
+module_param_named(ufo_poll_ms, pvr_ufo_poll_ms, uint, 0644);
+MODULE_PARM_DESC(ufo_poll_ms,
+		 "Poll period (ms) for missing FRAG completion interrupts. Default 16, 0 disables it.");
+
 /**
  * pvr_device_lost() - Mark GPU device as lost
  * @pvr_dev: Target PowerVR device.
@@ -109,6 +114,7 @@ pvr_power_fw_disable(struct pvr_device *pvr_dev, bool hard_reset, bool rpm_suspe
 
 	if (!hard_reset) {
 		cancel_delayed_work_sync(&pvr_dev->watchdog.work);
+		cancel_delayed_work_sync(&pvr_dev->ufo_poll_work);
 
 		err = pvr_power_request_idle(pvr_dev);
 		if (err)
@@ -152,6 +158,10 @@ pvr_power_fw_enable(struct pvr_device *pvr_dev, bool rpm_resume)
 
 	queue_delayed_work(pvr_dev->sched_wq, &pvr_dev->watchdog.work,
 			   msecs_to_jiffies(WATCHDOG_TIME_MS));
+
+	if (READ_ONCE(pvr_ufo_poll_ms))
+		queue_delayed_work(system_highpri_wq, &pvr_dev->ufo_poll_work,
+				   msecs_to_jiffies(READ_ONCE(pvr_ufo_poll_ms)));
 
 	return 0;
 
@@ -251,6 +261,35 @@ out_requeue:
 	}
 }
 
+static void
+pvr_ufo_poll_worker(struct work_struct *work)
+{
+	struct pvr_device *pvr_dev = container_of(work, struct pvr_device,
+						  ufo_poll_work.work);
+	struct device *dev = from_pvr_device(pvr_dev)->dev;
+	struct pvr_queue *queue, *tmp_queue;
+	LIST_HEAD(active_queues);
+
+	if (pvr_dev->lost || !READ_ONCE(pvr_ufo_poll_ms))
+		return;
+
+	if (!READ_ONCE(pvr_dev->fw_dev.initialised))
+		goto out_requeue;
+
+	mutex_lock(&pvr_dev->queues.lock);
+	list_splice_init(&pvr_dev->queues.active, &active_queues);
+	list_for_each_entry_safe(queue, tmp_queue, &active_queues, node) {
+		pvr_fw_object_sync_all_for_cpu(dev, queue->timeline_ufo.fw_obj);
+		pvr_queue_process(queue);
+	}
+	mutex_unlock(&pvr_dev->queues.lock);
+
+out_requeue:
+	if (!pvr_dev->lost && READ_ONCE(pvr_ufo_poll_ms))
+		queue_delayed_work(system_highpri_wq, &pvr_dev->ufo_poll_work,
+				   msecs_to_jiffies(READ_ONCE(pvr_ufo_poll_ms)));
+}
+
 /**
  * pvr_watchdog_init() - Initialise watchdog for device
  * @pvr_dev: Target PowerVR device.
@@ -263,6 +302,7 @@ int
 pvr_watchdog_init(struct pvr_device *pvr_dev)
 {
 	INIT_DELAYED_WORK(&pvr_dev->watchdog.work, pvr_watchdog_worker);
+	INIT_DELAYED_WORK(&pvr_dev->ufo_poll_work, pvr_ufo_poll_worker);
 
 	return 0;
 }
@@ -675,6 +715,7 @@ void
 pvr_watchdog_fini(struct pvr_device *pvr_dev)
 {
 	cancel_delayed_work_sync(&pvr_dev->watchdog.work);
+	cancel_delayed_work_sync(&pvr_dev->ufo_poll_work);
 }
 
 int pvr_power_domains_init(struct pvr_device *pvr_dev)

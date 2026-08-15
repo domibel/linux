@@ -266,6 +266,9 @@ struct pvr_device {
 		u32 kccb_stall_count;
 	} watchdog;
 
+	/** @ufo_poll_work: Periodic UFO completion poll. */
+	struct delayed_work ufo_poll_work;
+
 	/**
 	 * @kccb: Circular buffer for communications with firmware.
 	 */
