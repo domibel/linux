@@ -1132,13 +1132,22 @@ static void init_fw_context(struct pvr_queue *queue, void *fw_ctx_map)
  */
 static int pvr_queue_cleanup_fw_context(struct pvr_queue *queue)
 {
+	struct pvr_device *pvr_dev = queue->ctx->pvr_dev;
+
 	if (!queue->ctx->fw_obj)
 		return 0;
 
 	if (atomic_read(&queue->kicks_sent) == 0)
 		return 0;
 
-	return pvr_fw_structure_cleanup(queue->ctx->pvr_dev,
+	if (atomic_read(&queue->in_flight_job_count) != 0) {
+		dev_warn(from_pvr_device(pvr_dev)->dev,
+			 "FW context not idle at teardown (%d job(s) in flight); skipping CLEANUP to avoid wedging the FW\n",
+			 atomic_read(&queue->in_flight_job_count));
+		return 0;
+	}
+
+	return pvr_fw_structure_cleanup(pvr_dev,
 					ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
 					queue->ctx->fw_obj, queue->ctx_offset);
 }
@@ -1470,6 +1479,8 @@ void pvr_queue_destroy(struct pvr_queue *queue, bool cleanup_queue_entity)
 {
 	if (!queue)
 		return;
+
+	pvr_queue_signal_done_fences(queue);
 
 	mutex_lock(&queue->ctx->pvr_dev->queues.lock);
 	list_del_init(&queue->node);
