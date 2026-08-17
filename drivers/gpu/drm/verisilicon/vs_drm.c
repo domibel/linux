@@ -18,6 +18,7 @@
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_of.h>
+#include <drm/drm_prime.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
@@ -74,6 +75,19 @@ vs_gem_fb_create(struct drm_device *drm, struct drm_file *file,
 	return drm_gem_fb_create(drm, file, info, mode_cmd);
 }
 
+static struct drm_gem_object *
+vs_gem_prime_import(struct drm_device *drm, struct dma_buf *dma_buf)
+{
+	struct drm_gem_object *obj = drm_gem_prime_import(drm, dma_buf);
+
+	if (IS_ERR(obj))
+		drm_warn_once(drm,
+			      "dma-buf import failed (%pe): allocate scanout buffers below 4 GiB\n",
+			      obj);
+
+	return obj;
+}
+
 static const struct drm_driver vs_drm_driver = {
 	.driver_features	= DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC,
 	.fops			= &vs_drm_driver_fops,
@@ -84,6 +98,7 @@ static const struct drm_driver vs_drm_driver = {
 
 	/* GEM Operations */
 	.gem_create_object	= vs_gem_create_object,
+	.gem_prime_import	= vs_gem_prime_import,
 	DRM_GEM_DMA_DRIVER_OPS_WITH_DUMB_CREATE(vs_gem_dumb_create),
 	DRM_FBDEV_DMA_DRIVER_OPS,
 };
