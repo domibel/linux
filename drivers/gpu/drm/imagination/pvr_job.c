@@ -36,6 +36,11 @@ module_param(kernel_heap_guard_size, ulong, 0644);
 MODULE_PARM_DESC(kernel_heap_guard_size,
 		 "Size in bytes of the PDS/USC heap-overshoot guard. Default 8 MiB.");
 
+static unsigned long submit_mask_alloc_kib = 8192;
+module_param(submit_mask_alloc_kib, ulong, 0644);
+MODULE_PARM_DESC(submit_mask_alloc_kib,
+		 "Cache-eviction buffer size (KiB) written before each submit. Default 8192, 0 disables it.");
+
 static void pvr_job_release(struct kref *kref)
 {
 	struct pvr_job *job = container_of(kref, struct pvr_job, ref_count);
@@ -777,6 +782,16 @@ pvr_submit_jobs(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 				continue;
 			pvr_vm_ensure_heap_guard(vm_ctx, i, heap->base,
 						 heap->size, guard_size);
+		}
+	}
+
+	if (submit_mask_alloc_kib) {
+		size_t sz = submit_mask_alloc_kib << 10;
+		void *p = kvmalloc(sz, GFP_KERNEL);
+
+		if (p) {
+			memset(p, 0, sz);
+			kvfree(p);
 		}
 	}
 
