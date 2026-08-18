@@ -34,6 +34,8 @@
 /**
  * struct pvr_vm_context - Context type used to represent a single VM.
  */
+#define PVR_VM_NUM_HEAP_GUARDS 2
+
 struct pvr_vm_context {
 	/**
 	 * @pvr_dev: The PowerVR device to which this context is bound.
@@ -64,6 +66,19 @@ struct pvr_vm_context {
 	 * should use the @dummy_gem.resv and not their own _resv field.
 	 */
 	struct drm_gem_object dummy_gem;
+
+	/** @guard_lock: Serialises access to @heap_guards. */
+	struct mutex guard_lock;
+
+	/** @heap_guards: Per-heap overshoot guard state. */
+	struct pvr_vm_heap_guard {
+		/** @obj: The current guard BO (NULL until first placement). */
+		struct pvr_gem_object *obj;
+		/** @addr: Device VA the guard is currently mapped at (0 = unmapped). */
+		u64 addr;
+		/** @size: Size the guard is currently mapped with. */
+		u64 size;
+	} heap_guards[PVR_VM_NUM_HEAP_GUARDS];
 };
 
 static inline
@@ -590,6 +605,7 @@ pvr_vm_create_context(struct pvr_device *pvr_dev, bool is_userspace_context)
 		       0, 1ULL << device_addr_bits, 0, 0, &pvr_vm_gpuva_ops);
 
 	mutex_init(&vm_ctx->lock);
+	mutex_init(&vm_ctx->guard_lock);
 	kref_init(&vm_ctx->ref_count);
 
 	return vm_ctx;
@@ -621,8 +637,14 @@ pvr_vm_context_release(struct kref *ref_count)
 
 	pvr_vm_unmap_all(vm_ctx);
 
+	for (unsigned int i = 0; i < PVR_VM_NUM_HEAP_GUARDS; i++) {
+		if (vm_ctx->heap_guards[i].obj)
+			pvr_gem_object_put(vm_ctx->heap_guards[i].obj);
+	}
+
 	pvr_mmu_context_destroy(vm_ctx->mmu_ctx);
 	drm_gem_private_object_fini(&vm_ctx->dummy_gem);
+	mutex_destroy(&vm_ctx->guard_lock);
 	mutex_destroy(&vm_ctx->lock);
 
 	drm_gpuvm_put(&vm_ctx->gpuvm_mgr);
@@ -904,6 +926,101 @@ pvr_vm_unmap_all(struct pvr_vm_context *vm_ctx)
 	}
 
 	mutex_unlock(&vm_ctx->lock);
+}
+
+static u64
+__pvr_vm_hwm_locked(struct pvr_vm_context *vm_ctx, u64 base, u64 range,
+		    struct pvr_gem_object *exclude)
+{
+	struct drm_gpuva *va;
+	u64 hwm = base;
+
+	drm_gpuvm_for_each_va_range(va, &vm_ctx->gpuvm_mgr, base, base + range) {
+		u64 end = va->va.addr + va->va.range;
+
+		if (exclude && gem_to_pvr_gem(va->gem.obj) == exclude)
+			continue;
+		if (end > hwm)
+			hwm = end;
+	}
+
+	return hwm;
+}
+
+u64
+pvr_vm_find_high_water_mark(struct pvr_vm_context *vm_ctx, u64 base, u64 range)
+{
+	u64 hwm;
+
+	mutex_lock(&vm_ctx->lock);
+	hwm = __pvr_vm_hwm_locked(vm_ctx, base, range, NULL);
+	mutex_unlock(&vm_ctx->lock);
+
+	return hwm;
+}
+
+/**
+ * pvr_vm_ensure_heap_guard() - Keep one overshoot guard mapped at a heap's
+ * high-water-mark, reusing a single BO.
+ * @vm_ctx: Target VM context.
+ * @slot: Guard slot index (< %PVR_VM_NUM_HEAP_GUARDS).
+ * @heap_base: Base device VA of the heap to guard.
+ * @heap_size: Size of the heap, in bytes.
+ * @guard_size: Size of the guard region, in bytes.
+ *
+ * Return:
+ *  * 0 on success or when nothing needed doing,
+ *  * -%EINVAL for a bad slot,
+ *  * or an error from BO creation / mapping.
+ */
+int
+pvr_vm_ensure_heap_guard(struct pvr_vm_context *vm_ctx, unsigned int slot,
+			 u64 heap_base, u64 heap_size, u64 guard_size)
+{
+	struct pvr_vm_heap_guard *g;
+	struct pvr_gem_object *obj;
+	u64 real_hwm;
+	int err = 0;
+
+	if (WARN_ON(slot >= PVR_VM_NUM_HEAP_GUARDS))
+		return -EINVAL;
+
+	g = &vm_ctx->heap_guards[slot];
+
+	mutex_lock(&vm_ctx->guard_lock);
+
+	mutex_lock(&vm_ctx->lock);
+	real_hwm = __pvr_vm_hwm_locked(vm_ctx, heap_base, heap_size, g->obj);
+	mutex_unlock(&vm_ctx->lock);
+
+	if (real_hwm + guard_size > heap_base + heap_size)
+		goto out;
+
+	if (g->obj && g->addr == real_hwm)
+		goto out;
+
+	if (!g->obj) {
+		obj = pvr_gem_object_create(vm_ctx->pvr_dev, guard_size, 0);
+		if (IS_ERR(obj)) {
+			err = PTR_ERR(obj);
+			goto out;
+		}
+		g->obj = obj;
+	}
+	if (g->addr) {
+		(void)pvr_vm_unmap(vm_ctx, g->addr, g->size);
+		g->addr = 0;
+		g->size = 0;
+	}
+	err = pvr_vm_map(vm_ctx, g->obj, 0, real_hwm, guard_size);
+	if (!err) {
+		g->addr = real_hwm;
+		g->size = guard_size;
+	}
+
+out:
+	mutex_unlock(&vm_ctx->guard_lock);
+	return err;
 }
 
 /* Static data areas are determined by firmware. */

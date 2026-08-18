@@ -11,15 +11,30 @@
 #include "pvr_power.h"
 #include "pvr_rogue_fwif.h"
 #include "pvr_rogue_fwif_client.h"
+#include "pvr_rogue_heap_config.h"
 #include "pvr_stream.h"
 #include "pvr_stream_defs.h"
 #include "pvr_sync.h"
 #include "pvr_trace.h"
+#include "pvr_vm.h"
 
 #include <drm/drm_exec.h>
 #include <drm/drm_gem.h>
+#include <drm/drm_print.h>
+#include <linux/mm.h>
+#include <linux/moduleparam.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/types.h>
 #include <uapi/drm/pvr_drm.h>
+
+static unsigned int kernel_heap_guards = 1;
+module_param(kernel_heap_guards, uint, 0644);
+
+static unsigned long kernel_heap_guard_size = 0x800000;
+module_param(kernel_heap_guard_size, ulong, 0644);
+MODULE_PARM_DESC(kernel_heap_guard_size,
+		 "Size in bytes of the PDS/USC heap-overshoot guard. Default 8 MiB.");
 
 static void pvr_job_release(struct kref *kref)
 {
@@ -742,6 +757,28 @@ pvr_submit_jobs(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	err = pvr_mmu_flush_exec(pvr_dev, false);
 	if (err)
 		goto out_job_data_cleanup;
+
+	if (kernel_heap_guards && jobs_alloced > 0 &&
+	    job_data[0].job && job_data[0].job->ctx &&
+	    job_data[0].job->ctx->vm_ctx) {
+		struct pvr_vm_context *vm_ctx = job_data[0].job->ctx->vm_ctx;
+		const u64 guard_size = kernel_heap_guard_size;
+		static const u64 heap_bases[] = {
+			ROGUE_PDSCODEDATA_HEAP_BASE,
+			ROGUE_USCCODE_HEAP_BASE,
+		};
+		size_t i;
+
+		for (i = 0; i < ARRAY_SIZE(heap_bases); i++) {
+			const struct drm_pvr_heap *heap =
+				pvr_find_heap_containing(pvr_dev, heap_bases[i], 1);
+
+			if (!heap)
+				continue;
+			pvr_vm_ensure_heap_guard(vm_ctx, i, heap->base,
+						 heap->size, guard_size);
+		}
+	}
 
 	drm_exec_init(&exec, DRM_EXEC_INTERRUPTIBLE_WAIT | DRM_EXEC_IGNORE_DUPLICATES, 0);
 
